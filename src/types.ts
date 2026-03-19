@@ -45,7 +45,7 @@ export interface ImageEntry {
   sizeBytes: number
   savedAt: number      // Date.now()
   groundTruth: DayReading[] | null
-  difficulty: 1 | 2 | 3 | null
+  difficulty: 1 | 2 | null
 }
 
 // ── Benchmark ──────────────────────────────────────────────────────
@@ -53,7 +53,7 @@ export interface ImageEntry {
 export interface BenchmarkImageResult {
   imageId: string
   imageName: string
-  difficulty: 1 | 2 | 3 | null
+  difficulty: 1 | 2 | null
   model: string
   hasGroundTruth: boolean
   accuracy: AccuracyResult | null   // null if no ground truth

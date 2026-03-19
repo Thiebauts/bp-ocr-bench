@@ -1,7 +1,8 @@
 import { useState, useRef, useEffect } from 'react'
 import type { ChangeEvent, CSSProperties } from 'react'
 import type { ImageEntry, BenchmarkRun, BenchmarkImageResult, SavedPrompt } from './types'
-import { SUGGESTED_MODELS, compareReadings, estimateCost, fmtCost } from './App'
+import { SUGGESTED_MODELS } from './models'
+import { pctColor, downloadBlob, compareReadings, estimateCost, fmtCost } from './utils'
 import { callOpenRouter } from './api/openrouter'
 import { getAllBenchmarkRuns, saveBenchmarkRun, deleteBenchmarkRun } from './db'
 
@@ -22,16 +23,9 @@ function fmtErr(n: number | null): string {
   return n === null ? '—' : '±' + n.toFixed(1)
 }
 
-function pctColor(pct: number | null): string {
-  if (pct === null) return 'var(--text-muted)'
-  if (pct >= 90) return 'var(--success)'
-  if (pct >= 70) return 'var(--warning)'
-  return 'var(--danger)'
-}
-
-function diffLabel(d: 1 | 2 | 3 | null): string {
+function diffLabel(d: 1 | 2 | null): string {
   if (d === 1) return 'Expected'
-  if (d === 2 || d === 3) return 'Challenging'
+  if (d === 2) return 'Challenging'
   return '—'
 }
 
@@ -42,13 +36,6 @@ function autoRunName(models: string[]): string {
   })
   const shortModels = models.map(m => m.split('/').pop() ?? m).join(', ')
   return `${date} — ${shortModels}`
-}
-
-function downloadBlob(blob: Blob, filename: string) {
-  const url = URL.createObjectURL(blob)
-  const a = document.createElement('a')
-  a.href = url; a.download = filename; a.click()
-  URL.revokeObjectURL(url)
 }
 
 // ── Per-model stats from a run ─────────────────────────────────────
@@ -108,7 +95,7 @@ function computeModelStats(results: BenchmarkImageResult[], model: string): Mode
   const avgCostPerRequest = costsWithData.length > 0 ? totalCost / costsWithData.length : null
 
   const byDiff = {} as Record<'expected' | 'challenging', { count: number; exactPct: number | null; dayMatchCount: number | null }>
-  for (const [key, diffs] of [['expected', [1]], ['challenging', [2, 3]]] as [string, number[]][]) {
+  for (const [key, diffs] of [['expected', [1]], ['challenging', [2]]] as [string, number[]][]) {
     const dr          = paired.filter(r => r.difficulty !== null && diffs.includes(r.difficulty))
     const drAll       = withGT.filter(r => r.difficulty !== null && diffs.includes(r.difficulty))
     const dExact      = dr.reduce((s, r) => s + r.accuracy!.totalExactValues, 0)
@@ -400,7 +387,7 @@ function BenchmarkReport({ run }: { run: BenchmarkRun }) {
   // Unique images in this run
   const imageIds = [...new Set(run.results.map(r => r.imageId))]
   const imageNames: Record<string, string> = {}
-  const imageDiff: Record<string, 1 | 2 | 3 | null> = {}
+  const imageDiff: Record<string, 1 | 2 | null> = {}
   for (const r of run.results) {
     imageNames[r.imageId] = r.imageName
     imageDiff[r.imageId] = r.difficulty
@@ -538,11 +525,11 @@ function BenchmarkReport({ run }: { run: BenchmarkRun }) {
                     </td>
                     <td style={{ whiteSpace: 'nowrap' }}>
                       {s.avgDurationMs != null
-                        ? <span style={{ fontSize: 14, fontWeight: 600 }}>{(s.avgDurationMs / 1000).toFixed(1)}s</span>
+                        ? <span className="report-avg-value">{(s.avgDurationMs / 1000).toFixed(1)}s</span>
                         : <span className="text-muted">—</span>}
                     </td>
-                    <td><span style={{ fontSize: 14, fontWeight: 600 }}>{fmtErr(s.avgSys)}</span></td>
-                    <td><span style={{ fontSize: 14, fontWeight: 600 }}>{fmtErr(s.avgDia)}</span></td>
+                    <td><span className="report-avg-value">{fmtErr(s.avgSys)}</span></td>
+                    <td><span className="report-avg-value">{fmtErr(s.avgDia)}</span></td>
                     {(['expected', 'challenging'] as const).map(d => (
                       <td key={d} rowSpan={rowSpan} style={vs}>
                         {s.byDiff[d].count > 0 ? (
@@ -647,7 +634,7 @@ function BenchmarkReport({ run }: { run: BenchmarkRun }) {
                         </td>
                         <td>
                           {r.difficulty ? (
-                            <span className={`difficulty-badge difficulty-badge--${r.difficulty === 1 ? '1' : '3'}`}>
+                            <span className={`difficulty-badge difficulty-badge--${r.difficulty}`}>
                               {diffLabel(r.difficulty)}
                             </span>
                           ) : <span className="text-muted">—</span>}
@@ -709,7 +696,7 @@ function BenchmarkReport({ run }: { run: BenchmarkRun }) {
                       </td>
                       <td>
                         {first.difficulty ? (
-                          <span className={`difficulty-badge difficulty-badge--${first.difficulty === 1 ? '1' : '3'}`}>
+                          <span className={`difficulty-badge difficulty-badge--${first.difficulty}`}>
                             {diffLabel(first.difficulty)}
                           </span>
                         ) : <span className="text-muted">—</span>}
@@ -759,15 +746,15 @@ function BenchmarkReport({ run }: { run: BenchmarkRun }) {
                           <span className="run-sub-label">Run {i + 1}</span>
                         </td>
                         <td />
-                        <td style={{ fontSize: 11, whiteSpace: 'nowrap', color: 'var(--text-muted)' }}>
+                        <td className="nowrap">
                           {acc ? `${acc.totalExactValues}/${acc.pairedValues}` : '—'}
                         </td>
                         <td>
                           {pct !== null ? (
-                            <span style={{ fontSize: 11, color: pctColor(pct) }}>{fmtPct(pct)}</span>
-                          ) : <span style={{ fontSize: 11, color: 'var(--text-muted)' }}>—</span>}
+                            <span style={{ color: pctColor(pct) }}>{fmtPct(pct)}</span>
+                          ) : <span>—</span>}
                         </td>
-                        <td style={{ fontSize: 11, whiteSpace: 'nowrap', color: 'var(--text-muted)' }}>
+                        <td className="nowrap">
                           {acc ? (
                             <span style={{ color: acc.dayCountMatch ? 'var(--success)' : 'var(--warning)' }}>
                               {acc.extDayCount}/{acc.gtDayCount}
@@ -775,14 +762,14 @@ function BenchmarkReport({ run }: { run: BenchmarkRun }) {
                             </span>
                           ) : '—'}
                         </td>
-                        <td style={{ fontSize: 11, color: 'var(--text-muted)' }}>{fmtErr(r.accuracy?.avgSysError ?? null)}</td>
-                        <td style={{ fontSize: 11, color: 'var(--text-muted)' }}>{fmtErr(r.accuracy?.avgDiaError ?? null)}</td>
+                        <td>{fmtErr(r.accuracy?.avgSysError ?? null)}</td>
+                        <td>{fmtErr(r.accuracy?.avgDiaError ?? null)}</td>
                         <td>
                           {r.error
-                            ? <span style={{ fontSize: 11, color: 'var(--danger)' }} title={r.error}>Error</span>
+                            ? <span style={{ color: 'var(--danger)' }} title={r.error}>Error</span>
                             : r.hasGroundTruth
-                              ? <span style={{ fontSize: 11, color: 'var(--success)' }}>✓</span>
-                              : <span style={{ fontSize: 11, color: 'var(--text-muted)' }}>No GT</span>}
+                              ? <span style={{ color: 'var(--success)' }}>✓</span>
+                              : <span>No GT</span>}
                         </td>
                       </tr>
                     )
@@ -830,7 +817,7 @@ export function BenchmarkTab({ library, apiKey, prompt, savedPrompts }: Benchmar
     completed: number; total: number; running: string[]
   } | null>(null)
   const [runError, setRunError] = useState<string | null>(null)
-  const abortRef = useRef(false)
+  const abortRef = useRef<AbortController | null>(null)
 
   // History state
   const [runs, setRuns] = useState<BenchmarkRun[]>([])
@@ -879,7 +866,8 @@ export function BenchmarkTab({ library, apiKey, prompt, savedPrompts }: Benchmar
 
     setRunError(null)
     setIsRunning(true)
-    abortRef.current = false
+    abortRef.current = new AbortController()
+    const { signal } = abortRef.current
 
     const imagesToTest = library.filter(e => selectedImageIds.includes(e.id))
 
@@ -924,6 +912,7 @@ export function BenchmarkTab({ library, apiKey, prompt, savedPrompts }: Benchmar
           imageMimeType: image.mimeType,
           maxTokens,
           temperature,
+          signal,
         })
         const accuracy = (r.data && image.groundTruth && image.groundTruth.length > 0)
           ? compareReadings(r.data, image.groundTruth)
@@ -953,7 +942,7 @@ export function BenchmarkTab({ library, apiKey, prompt, savedPrompts }: Benchmar
 
     // Pool: each worker grabs the next available task until all are done or aborted
     const worker = async () => {
-      while (!abortRef.current) {
+      while (!signal.aborted) {
         const idx = nextIndex++
         if (idx >= tasks.length) break
         await executeTask(idx)
@@ -964,7 +953,7 @@ export function BenchmarkTab({ library, apiKey, prompt, savedPrompts }: Benchmar
     const results = resultSlots.filter((r): r is BenchmarkImageResult => r !== undefined)
 
     const run: BenchmarkRun = {
-      id: Date.now().toString(),
+      id: crypto.randomUUID(),
       name: runName.trim() || autoRunName(selectedModels),
       timestamp: Date.now(),
       models: selectedModels,
@@ -983,7 +972,7 @@ export function BenchmarkTab({ library, apiKey, prompt, savedPrompts }: Benchmar
     setRunName('')
   }
 
-  const handleAbort = () => { abortRef.current = true }
+  const handleAbort = () => { abortRef.current?.abort() }
 
   const handleDeleteRun = async (id: string) => {
     await deleteBenchmarkRun(id)

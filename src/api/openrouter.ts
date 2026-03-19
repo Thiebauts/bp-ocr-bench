@@ -10,6 +10,7 @@ export interface ApiCallParams {
   imageMimeType: string
   maxTokens: number
   temperature: number
+  signal?: AbortSignal
 }
 
 export interface ApiCallResult {
@@ -20,10 +21,11 @@ export interface ApiCallResult {
 }
 
 export async function callOpenRouter(params: ApiCallParams): Promise<ApiCallResult> {
-  const { apiKey, model, prompt, imageBase64, imageMimeType, maxTokens, temperature } = params
+  const { apiKey, model, prompt, imageBase64, imageMimeType, maxTokens, temperature, signal } = params
 
   const response = await fetch(OPENROUTER_URL, {
     method: 'POST',
+    signal,
     headers: {
       Authorization: `Bearer ${apiKey}`,
       'Content-Type': 'application/json',
@@ -74,8 +76,16 @@ export async function callOpenRouter(params: ApiCallParams): Promise<ApiCallResu
   }
 
   try {
-    const data = JSON.parse(cleaned)
-    return { data, raw: rawContent, error: null, usage }
+    const parsed = JSON.parse(cleaned)
+    if (!isValidResponse(parsed)) {
+      return {
+        data: null,
+        raw: rawContent,
+        error: 'Model returned valid JSON but not in the expected format — see raw output below',
+        usage,
+      }
+    }
+    return { data: parsed, raw: rawContent, error: null, usage }
   } catch {
     return {
       data: null,
@@ -84,4 +94,18 @@ export async function callOpenRouter(params: ApiCallParams): Promise<ApiCallResu
       usage,
     }
   }
+}
+
+function isValidResponse(data: unknown): data is DayReading[] {
+  if (!Array.isArray(data)) return false
+  return data.every(d => {
+    if (typeof d !== 'object' || d === null) return false
+    const day = d as Record<string, unknown>
+    if (typeof day.day_label !== 'string' || !Array.isArray(day.measurements)) return false
+    return (day.measurements as unknown[]).every(m => {
+      if (typeof m !== 'object' || m === null) return false
+      const meas = m as Record<string, unknown>
+      return typeof meas.systolic === 'number' && typeof meas.diastolic === 'number'
+    })
+  })
 }
