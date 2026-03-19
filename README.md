@@ -65,11 +65,13 @@ Open [http://localhost:5173](http://localhost:5173) in your browser.
 bp-extractor/
 ├── index.html
 ├── package.json
+├── tsconfig.json
 ├── vite.config.ts
 ├── .env.example             # API key template
 └── src/
     ├── main.tsx             # app entry point
     ├── App.tsx              # main extraction UI
+    ├── App.css              # app styles
     ├── BenchmarkTab.tsx     # multi-model benchmark UI
     ├── db.ts                # IndexedDB persistence (images, prompts, runs)
     ├── types.ts             # shared TypeScript interfaces
@@ -125,6 +127,12 @@ npm run preview
 ```
 
 The built output is in `dist/` — open it with any static file server, or just use `npm run dev`.
+
+## Contributing
+
+Contributions are welcome. Please open an issue first to discuss proposed changes.
+
+This project follows [Conventional Commits](https://www.conventionalcommits.org/) for all commit messages.
 
 ## License
 
