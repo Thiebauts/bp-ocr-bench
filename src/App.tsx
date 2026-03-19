@@ -1,5 +1,5 @@
-import { useState, useRef, useEffect, Suspense, lazy } from 'react'
-import type { ChangeEvent, DragEvent } from 'react'
+import { useState, useRef, useEffect, Suspense, lazy, useCallback } from 'react'
+import type { ChangeEvent, DragEvent, KeyboardEvent } from 'react'
 import type {
   ExtractionResult, SavedPrompt, ModelState, DayReading,
   Measurement, ImageEntry, AccuracyResult,
@@ -18,7 +18,7 @@ const BenchmarkTab = lazy(() =>
 
 // ── Constants ──────────────────────────────────────────────────────
 
-const DEFAULT_PROMPT = `You are a medical data extraction assistant. Extract all blood pressure readings from this image.
+const DEFAULT_PROMPT = `You are a medical data extraction assistant. Extract all blood pressure readings from this handwritten log image.
 
 Return ONLY valid JSON matching this exact structure (no markdown, no explanation):
 
@@ -32,10 +32,14 @@ Return ONLY valid JSON matching this exact structure (no markdown, no explanatio
 ]
 
 Rules:
+- Readings are written as systolic/diastolic pairs, often separated by /, ||, or whitespace
+- If a third number appears alongside a pair, it is likely pulse — ignore it
 - Group readings by day/date if visible
 - If no day grouping is apparent, use "Day 1" for all readings
+- If no days are specified but different groups of numbers are seen, consider these groups as different days
 - Use time labels from the image (e.g. "Morning", "Evening", "8:00 AM") or generate sequential ones ("Reading 1", "Reading 2")
-- systolic and diastolic must be integers
+- systolic and diastolic must be integers with no leading zeros
+- Read each digit carefully — handwritten digits can be ambiguous
 - Extract ALL readings visible in the image`
 
 function exportJSON(data: DayReading[], label: string) {
@@ -442,6 +446,8 @@ export default function App() {
   const [activeLibId, setActiveLibId] = useState<string | null>(null)  // which library entry is loaded
   const [saveName, setSaveName]       = useState('')
   const [gtEditorId, setGtEditorId]   = useState<string | null>(null)  // which entry is open in editor
+  const [renamingId, setRenamingId]   = useState<string | null>(null)
+  const [renameValue, setRenameValue] = useState('')
 
   // Prompt
   const [prompt, setPrompt] = useState(DEFAULT_PROMPT)
@@ -546,6 +552,30 @@ export default function App() {
     await dbSave(updated)
     setLibrary(prev => prev.map(e => e.id === id ? updated : e))
   }
+
+  const startRename = useCallback((id: string) => {
+    const entry = library.find(e => e.id === id)
+    if (!entry) return
+    setRenamingId(id)
+    setRenameValue(entry.name)
+  }, [library])
+
+  const commitRename = useCallback(async () => {
+    if (!renamingId) return
+    const trimmed = renameValue.trim()
+    if (!trimmed) { setRenamingId(null); return }
+    const entry = library.find(e => e.id === renamingId)
+    if (!entry || entry.name === trimmed) { setRenamingId(null); return }
+    const updated = { ...entry, name: trimmed }
+    await dbSave(updated)
+    setLibrary(prev => prev.map(e => e.id === renamingId ? updated : e))
+    setRenamingId(null)
+  }, [renamingId, renameValue, library])
+
+  const handleRenameKeyDown = useCallback((e: KeyboardEvent<HTMLInputElement>) => {
+    if (e.key === 'Enter') commitRename()
+    else if (e.key === 'Escape') setRenamingId(null)
+  }, [commitRename])
 
   const handleSaveGroundTruth = async (id: string, gt: DayReading[]) => {
     const entry = library.find(e => e.id === id)
@@ -712,7 +742,21 @@ export default function App() {
                 {activeEntry ? (
                   // Loaded from library
                   <div className="library-active-info">
-                    <span className="library-active-name">{activeEntry.name}</span>
+                    {renamingId === activeEntry.id ? (
+                      <input className="input input-sm rename-input"
+                        value={renameValue}
+                        onChange={e => setRenameValue(e.target.value)}
+                        onKeyDown={handleRenameKeyDown}
+                        onBlur={commitRename}
+                        autoFocus />
+                    ) : (
+                      <>
+                        <span className="library-active-name">{activeEntry.name}</span>
+                        <button className="btn btn-ghost btn-sm"
+                          onClick={() => startRename(activeEntry.id)}
+                          title="Rename image">✏</button>
+                      </>
+                    )}
                     {activeEntry.groundTruth && <span className="gt-badge">ground truth</span>}
                     {activeEntry.difficulty && (
                       <span className={`difficulty-badge difficulty-badge--${activeEntry.difficulty}`}>

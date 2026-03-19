@@ -32,6 +32,9 @@ export const SUGGESTED_MODELS: ModelGroup[] = [
   {
     group: 'OpenAI',
     models: [
+      { id: 'openai/gpt-5.4',                            label: 'GPT-5.4',                 input: 2.5,   output: 15    },
+      { id: 'openai/gpt-5.4-pro',                      label: 'GPT-5.4 Pro',             input: 30,    output: 180   },
+      { id: 'openai/gpt-5.4-mini',                     label: 'GPT-5.4 Mini',            input: null,  output: null  },
       { id: 'openai/gpt-5',                             label: 'GPT-5',                   input: 1.25,  output: 10    },
       { id: 'openai/gpt-5-pro',                        label: 'GPT-5 Pro',               input: 15,    output: 120   },
       { id: 'openai/gpt-5-mini',                       label: 'GPT-5 Mini',              input: 0.25,  output: 2     },
@@ -53,6 +56,7 @@ export const SUGGESTED_MODELS: ModelGroup[] = [
     group: 'Google',
     models: [
       { id: 'google/gemini-3.1-pro-preview',            label: 'Gemini 3.1 Pro (preview)',input: 2,     output: 12    },
+      { id: 'google/gemini-3.1-flash-lite-preview',    label: 'Gemini 3.1 Flash Lite',   input: 0.25,  output: 1.5   },
       { id: 'google/gemini-3-pro-preview',              label: 'Gemini 3 Pro (preview)',  input: 2,     output: 12    },
       { id: 'google/gemini-3-flash-preview',            label: 'Gemini 3 Flash (preview)',input: 0.5,   output: 3     },
       { id: 'google/gemini-3.1-flash-image-preview',   label: 'Gemini 3.1 Flash Image',  input: 0.25,  output: 1.5   },
@@ -113,6 +117,125 @@ export const SUGGESTED_MODELS: ModelGroup[] = [
       { id: 'amazon/nova-2-lite-v1',                    label: 'Nova 2 Lite',             input: 0.3,   output: 2.5   },
       { id: 'amazon/nova-lite-v1',                      label: 'Nova Lite',               input: 0.06,  output: 0.24  },
     ],
+  },
+  {
+    group: 'ByteDance',
+    models: [
+      { id: 'bytedance-seed/seed-1.6-flash',              label: 'Seed 1.6 Flash',          input: 0.075, output: 0.3   },
+      { id: 'bytedance-seed/seed-1.6',                    label: 'Seed 1.6',                input: null,  output: null  },
+      { id: 'bytedance-seed/seed-2.0-lite',               label: 'Seed 2.0 Lite',           input: 0.25,  output: 2     },
+      { id: 'bytedance-seed/seed-2.0-mini',               label: 'Seed 2.0 Mini',           input: null,  output: null  },
+    ],
+  },
+  {
+    group: 'NVIDIA',
+    models: [
+      { id: 'nvidia/nemotron-nano-12b-v2-vl',             label: 'Nemotron Nano 12B VL',    input: 0.2,   output: 0.6   },
+    ],
+  },
+  {
+    group: 'AllenAI',
+    models: [
+      { id: 'allenai/molmo-7b-d',                         label: 'Molmo 7B-D',              input: 0.1,   output: 0.2   },
+      { id: 'allenai/molmo-2-8b',                         label: 'Molmo 2 8B',              input: 0.2,   output: 0.2   },
+    ],
+  },
+  {
+    group: 'MoonshotAI',
+    models: [
+      { id: 'moonshotai/kimi-vl-a3b-thinking',            label: 'Kimi VL A3B (Thinking)',  input: null,  output: null  },
+    ],
+  },
+  {
+    group: 'StepFun',
+    models: [
+      { id: 'stepfun-ai/step3',                           label: 'Step3',                   input: 0.57,  output: 1.42  },
+    ],
+  },
+  {
+    group: 'Microsoft',
+    models: [
+      { id: 'microsoft/phi-4-multimodal-instruct',        label: 'Phi 4 Multimodal',        input: null,  output: null  },
+    ],
+  },
+]
+
+export interface ModelPreset {
+  name: string
+  models: string[]
+}
+
+export const MODEL_PRESETS: ModelPreset[] = [
+  {
+    name: 'Recommended (17 models)',
+    models: [
+      'anthropic/claude-sonnet-4.6',
+      'openai/gpt-5.4',
+      'openai/gpt-4.1',
+      'google/gemini-2.5-pro',
+      'google/gemini-2.5-flash',
+      'google/gemini-3-flash-preview',
+      'google/gemini-3.1-flash-lite-preview',
+      'openai/gpt-4.1-mini',
+      'anthropic/claude-haiku-4.5',
+      'qwen/qwen3-vl-235b-a22b-instruct',
+      'mistralai/mistral-large-2512',
+      'mistralai/mistral-medium-3.1',
+      'mistralai/pixtral-large-2411',
+      'google/gemini-2.0-flash-001',
+      'openai/gpt-4.1-nano',
+      'bytedance-seed/seed-1.6-flash',
+      'nvidia/nemotron-nano-12b-v2-vl',
+    ],
+  },
+  {
+    name: 'Frontier only',
+    models: [
+      'anthropic/claude-sonnet-4.6',
+      'anthropic/claude-opus-4.6',
+      'openai/gpt-5.4',
+      'openai/gpt-5',
+      'openai/gpt-4.1',
+      'google/gemini-3.1-pro-preview',
+      'google/gemini-2.5-pro',
+      'x-ai/grok-4',
+    ],
+  },
+  {
+    name: 'Budget (< $0.5/M input)',
+    models: [
+      'anthropic/claude-haiku-4.5',
+      'openai/gpt-4.1-mini',
+      'openai/gpt-4.1-nano',
+      'openai/gpt-4o-mini',
+      'google/gemini-2.5-flash',
+      'google/gemini-2.5-flash-lite',
+      'google/gemini-2.0-flash-001',
+      'google/gemini-2.0-flash-lite-001',
+      'x-ai/grok-4.1-fast',
+      'x-ai/grok-4-fast',
+      'meta-llama/llama-4-maverick',
+      'meta-llama/llama-4-scout',
+      'qwen/qwen3-vl-235b-a22b-instruct',
+      'qwen/qwen3-vl-32b-instruct',
+      'mistralai/mistral-medium-3.1',
+      'amazon/nova-lite-v1',
+      'bytedance-seed/seed-1.6-flash',
+      'nvidia/nemotron-nano-12b-v2-vl',
+      'allenai/molmo-7b-d',
+    ],
+  },
+  {
+    name: 'All Anthropic',
+    models: SUGGESTED_MODELS.find(g => g.group === 'Anthropic')!.models.map(m => m.id),
+  },
+  {
+    name: 'All Google',
+    models: SUGGESTED_MODELS.find(g => g.group === 'Google')!.models.map(m => m.id),
+  },
+  {
+    name: 'All OpenAI',
+    models: SUGGESTED_MODELS.find(g => g.group === 'OpenAI')!.models.map(m => m.id),
   },
 ]
 

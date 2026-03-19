@@ -1,7 +1,7 @@
 import { useState, useRef, useEffect } from 'react'
 import type { ChangeEvent, CSSProperties } from 'react'
 import type { ImageEntry, BenchmarkRun, BenchmarkImageResult, SavedPrompt } from './types'
-import { SUGGESTED_MODELS } from './models'
+import { SUGGESTED_MODELS, MODEL_PRESETS, PRICING_MAP } from './models'
 import { pctColor, downloadBlob, compareReadings, estimateCost, fmtCost } from './utils'
 import { callOpenRouter } from './api/openrouter'
 import { getAllBenchmarkRuns, saveBenchmarkRun, deleteBenchmarkRun } from './db'
@@ -71,18 +71,18 @@ function computeModelStatsByRun(results: BenchmarkImageResult[], model: string):
 
 function computeModelStats(results: BenchmarkImageResult[], model: string): ModelStats {
   const rows   = results.filter(r => r.model === model)
-  const withGT = rows.filter(r => r.hasGroundTruth && r.accuracy)
-  const paired = withGT.filter(r => r.accuracy!.pairedCount > 0)
+  const withGT = rows.filter(r => r.hasGroundTruth)
+  const paired = withGT.filter(r => r.accuracy && r.accuracy.pairedCount > 0)
 
-  // Value accuracy (individual sys + dia)
+  // Value accuracy — errored GT rows contribute 0 exact out of their GT values
   const totalExactValues  = paired.reduce((s, r) => s + r.accuracy!.totalExactValues, 0)
-  const totalPairedValues = paired.reduce((s, r) => s + r.accuracy!.pairedValues, 0)
+  const totalPairedValues = withGT.reduce((s, r) => s + (r.accuracy?.pairedValues ?? r.gtPairedValues ?? 0), 0)
   const totalPaired       = paired.reduce((s, r) => s + r.accuracy!.pairedCount, 0)
   const totalSys = paired.reduce((s, r) => s + (r.accuracy!.avgSysError ?? 0) * r.accuracy!.pairedCount, 0)
   const totalDia = paired.reduce((s, r) => s + (r.accuracy!.avgDiaError ?? 0) * r.accuracy!.pairedCount, 0)
 
-  // Day count matches
-  const dayMatchCount = withGT.filter(r => r.accuracy!.dayCountMatch).length
+  // Day count matches (errored results count as misses)
+  const dayMatchCount = withGT.filter(r => r.accuracy?.dayCountMatch).length
 
   // Average duration per request
   const avgDurationMs = rows.length > 0
@@ -99,8 +99,8 @@ function computeModelStats(results: BenchmarkImageResult[], model: string): Mode
     const dr          = paired.filter(r => r.difficulty !== null && diffs.includes(r.difficulty))
     const drAll       = withGT.filter(r => r.difficulty !== null && diffs.includes(r.difficulty))
     const dExact      = dr.reduce((s, r) => s + r.accuracy!.totalExactValues, 0)
-    const dPairedVals = dr.reduce((s, r) => s + r.accuracy!.pairedValues, 0)
-    const dDayMatch   = drAll.filter(r => r.accuracy!.dayCountMatch).length
+    const dPairedVals = drAll.reduce((s, r) => s + (r.accuracy?.pairedValues ?? r.gtPairedValues ?? 0), 0)
+    const dDayMatch   = drAll.filter(r => r.accuracy?.dayCountMatch).length
     byDiff[key as 'expected' | 'challenging'] = {
       count: dr.length,
       exactPct:     dPairedVals > 0 ? (dExact / dPairedVals) * 100 : null,
@@ -193,6 +193,44 @@ function exportRunCSV(run: BenchmarkRun) {
   downloadBlob(new Blob([csv], { type: 'text/csv' }), `benchmark-${run.id}.csv`)
 }
 
+function exportSummaryCSV(run: BenchmarkRun, stats: ModelStats[]) {
+  const headers = [
+    'model', 'images', 'with_gt',
+    'value_accuracy_pct', 'day_match', 'day_total',
+    'avg_sys_error', 'avg_dia_error',
+    'avg_cost_per_request_usd', 'avg_duration_ms',
+    'expected_value_acc_pct', 'expected_day_match', 'expected_count',
+    'challenging_value_acc_pct', 'challenging_day_match', 'challenging_count',
+    'errors',
+  ]
+  const rows = stats.map(s => {
+    const errors = run.results.filter(r => r.model === s.model && r.error).length
+    return [
+      s.model,
+      s.total,
+      s.withGT,
+      s.exactPct != null ? s.exactPct.toFixed(2) : '',
+      s.dayMatchCount ?? '',
+      s.withGT,
+      s.avgSys != null ? s.avgSys.toFixed(2) : '',
+      s.avgDia != null ? s.avgDia.toFixed(2) : '',
+      s.avgCostPerRequest != null ? s.avgCostPerRequest.toFixed(6) : '',
+      s.avgDurationMs != null ? s.avgDurationMs.toFixed(0) : '',
+      s.byDiff.expected.exactPct != null ? s.byDiff.expected.exactPct.toFixed(2) : '',
+      s.byDiff.expected.dayMatchCount ?? '',
+      s.byDiff.expected.count,
+      s.byDiff.challenging.exactPct != null ? s.byDiff.challenging.exactPct.toFixed(2) : '',
+      s.byDiff.challenging.dayMatchCount ?? '',
+      s.byDiff.challenging.count,
+      errors,
+    ]
+  })
+  const csv = [headers, ...rows]
+    .map(row => row.map(c => `"${String(c).replace(/"/g, '""')}"`).join(','))
+    .join('\n')
+  downloadBlob(new Blob([csv], { type: 'text/csv' }), `benchmark-${run.id}-summary.csv`)
+}
+
 // ── Scatterplot ─────────────────────────────────────────────────────
 
 const SCATTER_COLORS = [
@@ -202,12 +240,13 @@ const SCATTER_COLORS = [
 
 function BenchmarkScatterPlot({ modelStats }: { modelStats: ModelStats[] }) {
   const svgRef = useRef<SVGSVGElement>(null)
+  const [hoveredModel, setHoveredModel] = useState<string | null>(null)
 
   const plottable = modelStats.filter(s => s.exactPct !== null && s.avgCostPerRequest !== null)
   if (plottable.length === 0) return null
 
   const W = 640, H = 360
-  const M = { top: 24, right: 200, bottom: 52, left: 72 }
+  const M = { top: 24, right: 20, bottom: 52, left: 72 }
   const pw = W - M.left - M.right
   const ph = H - M.top - M.bottom
 
@@ -335,40 +374,61 @@ function BenchmarkScatterPlot({ modelStats }: { modelStats: ModelStats[] }) {
             const cy = yScale(s.avgCostPerRequest!)
             const r = circleR(s.avgDurationMs)
             const color = SCATTER_COLORS[i % SCATTER_COLORS.length]
+            const isHovered = hoveredModel === s.model
+            const shortName = s.model.split('/').pop() ?? s.model
             return (
-              <circle key={s.model} cx={cx} cy={cy} r={r}
-                fill={color} fillOpacity={0.8} stroke={color} strokeWidth={1.5}>
-                <title>{`${s.model}\nValue acc: ${fmtPct(s.exactPct)}\nCost/req: ${s.avgCostPerRequest != null ? fmtCost(s.avgCostPerRequest) : '—'}\nAvg time: ${s.avgDurationMs != null ? (s.avgDurationMs / 1000).toFixed(1) + 's' : '—'}`}</title>
-              </circle>
+              <g key={s.model}
+                onMouseEnter={() => setHoveredModel(s.model)}
+                onMouseLeave={() => setHoveredModel(null)}
+                style={{ cursor: 'default' }}>
+                <circle cx={cx} cy={cy} r={isHovered ? r + 2 : r}
+                  fill={color} fillOpacity={isHovered ? 1 : 0.8}
+                  stroke={isHovered ? '#333' : color} strokeWidth={isHovered ? 2 : 1.5} />
+                {isHovered && (() => {
+                  const detail = `${fmtPct(s.exactPct)} · ${s.avgCostPerRequest != null ? fmtCost(s.avgCostPerRequest) : '—'}`
+                  const tw = Math.max(shortName.length, detail.length) * 6.5 + 16
+                  const th = 34
+                  const flipX = cx + r + 6 + tw > pw
+                  const flipY = cy - th < 0
+                  const tx = flipX ? cx - r - 6 - tw : cx + r + 6
+                  const ty = flipY ? cy + r + 6 : cy - th + 10
+                  return (
+                    <>
+                      <rect x={tx} y={ty} width={tw} height={th} rx={4} fill="rgba(0,0,0,0.85)" />
+                      <text x={tx + 8} y={ty + 14} fontSize={10} fill="#fff" fontFamily="system-ui,sans-serif" fontWeight="bold">
+                        {shortName}
+                      </text>
+                      <text x={tx + 8} y={ty + 27} fontSize={9} fill="#ccc" fontFamily="system-ui,sans-serif">
+                        {detail}
+                      </text>
+                    </>
+                  )
+                })()}
+              </g>
             )
           })}
         </g>
 
-        {/* Legend */}
-        <g transform={`translate(${M.left + pw + 20},${M.top + 4})`}>
-          <text y={8} fontSize={11} fontWeight="bold" fill="#444" fontFamily="system-ui,sans-serif">Models</text>
-          {plottable.map((s, i) => {
-            const color = SCATTER_COLORS[i % SCATTER_COLORS.length]
-            const r = circleR(s.avgDurationMs)
-            const shortName = s.model.split('/').pop() ?? s.model
-            const label = shortName.length > 18 ? shortName.slice(0, 17) + '…' : shortName
-            const timeStr = s.avgDurationMs != null ? ` · ${(s.avgDurationMs / 1000).toFixed(1)}s` : ''
-            return (
-              <g key={s.model} transform={`translate(0,${24 + i * 24})`}>
-                <circle cx={r} cy={0} r={r} fill={color} fillOpacity={0.8} stroke={color} strokeWidth={1.5} />
-                <text x={r * 2 + 6} y={4} fontSize={10} fill="#444" fontFamily="system-ui,sans-serif">
-                  {label}{timeStr}
-                </text>
-              </g>
-            )
-          })}
-          {varyingDur && (
-            <text y={24 + plottable.length * 24 + 12} fontSize={9} fill="#888" fontFamily="system-ui,sans-serif">
-              Dot size ∝ avg time
-            </text>
-          )}
-        </g>
       </svg>
+
+      {/* Legend (HTML, below chart) */}
+      <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px 16px', marginTop: 8, fontSize: 11, fontFamily: 'system-ui, sans-serif' }}>
+        {plottable.map((s, i) => {
+          const color = SCATTER_COLORS[i % SCATTER_COLORS.length]
+          const shortName = s.model.split('/').pop() ?? s.model
+          const timeStr = s.avgDurationMs != null ? ` · ${(s.avgDurationMs / 1000).toFixed(1)}s` : ''
+          const accStr = s.exactPct != null ? ` · ${fmtPct(s.exactPct)}` : ''
+          return (
+            <span key={s.model} style={{ display: 'inline-flex', alignItems: 'center', gap: 4, whiteSpace: 'nowrap' }}>
+              <span style={{ width: 10, height: 10, borderRadius: '50%', background: color, display: 'inline-block', flexShrink: 0 }} />
+              <span style={{ color: '#444' }}>{shortName}{accStr}{timeStr}</span>
+            </span>
+          )
+        })}
+      </div>
+      {varyingDur && (
+        <div style={{ fontSize: 9, color: '#888', marginTop: 4 }}>Dot size ∝ avg response time</div>
+      )}
     </div>
   )
 }
@@ -377,6 +437,8 @@ function BenchmarkScatterPlot({ modelStats }: { modelStats: ModelStats[] }) {
 
 function BenchmarkReport({ run }: { run: BenchmarkRun }) {
   const [showPerImage, setShowPerImage] = useState(false)
+  const [detailResult, setDetailResult] = useState<BenchmarkImageResult | null>(null)
+  const [errorDetail, setErrorDetail] = useState<{ imageName: string; model: string; error: string } | null>(null)
 
   const modelStats = run.models.map(m => computeModelStats(run.results, m))
   const modelStatsByRun = run.models.reduce<Record<string, ModelStats[]>>((acc, m) => {
@@ -403,6 +465,7 @@ function BenchmarkReport({ run }: { run: BenchmarkRun }) {
           {imageIds.length} image{imageIds.length !== 1 ? 's' : ''} · {run.models.length} model{run.models.length !== 1 ? 's' : ''}
         </span>
         <div style={{ marginLeft: 'auto', display: 'flex', gap: 8 }}>
+          <button className="btn btn-sm" onClick={() => exportSummaryCSV(run, modelStats)}>Summary CSV</button>
           <button className="btn btn-sm" onClick={() => exportRunJSON(run)}>Export JSON</button>
           <button className="btn btn-sm" onClick={() => exportRunCSV(run)}>Export CSV</button>
         </div>
@@ -625,11 +688,17 @@ function BenchmarkReport({ run }: { run: BenchmarkRun }) {
                   // Single run — original layout
                   if (allRuns.length === 1) {
                     const r = allRuns[0]
-                    const pct = r.accuracy?.exactPct ?? null
                     const acc = r.accuracy
+                    const isErrorWithGT = !acc && r.hasGroundTruth && r.error
+                    const pct = acc ? acc.exactPct : isErrorWithGT ? 0 : null
+                    const valLabel = acc
+                      ? `${acc.totalExactValues}/${acc.pairedValues}`
+                      : isErrorWithGT ? `0/${r.gtPairedValues}` : null
                     return [(
                       <tr key={`${imageId}-${model}`} className={r.error ? 'report-row-error' : ''}>
-                        <td title={r.imageName} style={{ maxWidth: 160, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                        <td title={r.imageName} className="report-image-name"
+                          onClick={() => r.accuracy && setDetailResult(r)}
+                          style={r.accuracy ? { cursor: 'pointer' } : undefined}>
                           {r.imageName}
                         </td>
                         <td>
@@ -646,7 +715,7 @@ function BenchmarkReport({ run }: { run: BenchmarkRun }) {
                             : <span className="text-muted">no</span>}
                         </td>
                         <td style={{ fontSize: 12, whiteSpace: 'nowrap' }}>
-                          {acc ? `${acc.totalExactValues}/${acc.pairedValues}` : <span className="text-muted">—</span>}
+                          {valLabel ?? <span className="text-muted">—</span>}
                         </td>
                         <td>
                           {pct !== null ? (
@@ -661,13 +730,16 @@ function BenchmarkReport({ run }: { run: BenchmarkRun }) {
                               {acc.extDayCount}/{acc.gtDayCount}
                               {acc.dayCountMatch ? ' ✓' : ' ⚠'}
                             </span>
-                          ) : <span className="text-muted">—</span>}
+                          ) : isErrorWithGT
+                            ? <span style={{ color: 'var(--danger)' }}>0/{Math.round(r.gtPairedValues / 2)} ⚠</span>
+                            : <span className="text-muted">—</span>}
                         </td>
                         <td>{fmtErr(r.accuracy?.avgSysError ?? null)}</td>
                         <td>{fmtErr(r.accuracy?.avgDiaError ?? null)}</td>
                         <td>
                           {r.error
-                            ? <span className="text-muted" title={r.error} style={{ color: 'var(--danger)' }}>Error</span>
+                            ? <span style={{ color: 'var(--danger)', cursor: 'pointer', textDecoration: 'underline' }}
+                                onClick={() => setErrorDetail({ imageName: r.imageName, model: r.model, error: r.error! })}>Error</span>
                             : r.hasGroundTruth
                               ? <span style={{ color: 'var(--success)' }}>✓</span>
                               : <span className="text-muted">No GT</span>}
@@ -691,7 +763,9 @@ function BenchmarkReport({ run }: { run: BenchmarkRun }) {
 
                   const avgRow = (
                     <tr key={`${imageId}-${model}-avg`} className="report-row-avg">
-                      <td title={first.imageName} style={{ maxWidth: 160, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                      <td title={first.imageName} className="report-image-name"
+                        onClick={() => { const vr = validRuns[0]; if (vr?.accuracy) setDetailResult(vr) }}
+                        style={validRuns.some(r => r.accuracy) ? { cursor: 'pointer' } : undefined}>
                         {first.imageName}
                       </td>
                       <td>
@@ -736,18 +810,23 @@ function BenchmarkReport({ run }: { run: BenchmarkRun }) {
                   )
 
                   const subRows = allRuns.map((r, i) => {
-                    const pct = r.accuracy?.exactPct ?? null
                     const acc = r.accuracy
+                    const subIsErrorWithGT = !acc && r.hasGroundTruth && r.error
+                    const pct = acc ? acc.exactPct : subIsErrorWithGT ? 0 : null
+                    const subValLabel = acc
+                      ? `${acc.totalExactValues}/${acc.pairedValues}`
+                      : subIsErrorWithGT ? `0/${r.gtPairedValues}` : null
                     return (
                       <tr key={`${imageId}-${model}-run${i}`} className={`report-row-subrun${r.error ? ' report-row-error' : ''}`}>
                         <td />
                         <td />
-                        <td>
+                        <td onClick={() => acc && setDetailResult(r)}
+                          style={acc ? { cursor: 'pointer' } : undefined}>
                           <span className="run-sub-label">Run {i + 1}</span>
                         </td>
                         <td />
                         <td className="nowrap">
-                          {acc ? `${acc.totalExactValues}/${acc.pairedValues}` : '—'}
+                          {subValLabel ?? '—'}
                         </td>
                         <td>
                           {pct !== null ? (
@@ -760,13 +839,16 @@ function BenchmarkReport({ run }: { run: BenchmarkRun }) {
                               {acc.extDayCount}/{acc.gtDayCount}
                               {acc.dayCountMatch ? ' ✓' : ' ⚠'}
                             </span>
-                          ) : '—'}
+                          ) : subIsErrorWithGT
+                            ? <span style={{ color: 'var(--danger)' }}>0/{Math.round(r.gtPairedValues / 2)} ⚠</span>
+                            : '—'}
                         </td>
                         <td>{fmtErr(r.accuracy?.avgSysError ?? null)}</td>
                         <td>{fmtErr(r.accuracy?.avgDiaError ?? null)}</td>
                         <td>
                           {r.error
-                            ? <span style={{ color: 'var(--danger)' }} title={r.error}>Error</span>
+                            ? <span style={{ color: 'var(--danger)', cursor: 'pointer', textDecoration: 'underline' }}
+                                onClick={() => setErrorDetail({ imageName: r.imageName, model: r.model, error: r.error! })}>Error</span>
                             : r.hasGroundTruth
                               ? <span style={{ color: 'var(--success)' }}>✓</span>
                               : <span>No GT</span>}
@@ -782,6 +864,111 @@ function BenchmarkReport({ run }: { run: BenchmarkRun }) {
           </table>
         </div>
       </details>
+
+      {/* Error detail modal */}
+      {errorDetail && (
+        <div className="modal-backdrop" onClick={e => { if (e.target === e.currentTarget) setErrorDetail(null) }}>
+          <div className="benchmark-detail-modal" style={{ maxWidth: 560 }}>
+            <div className="modal-editor-header">
+              <h2>Error details</h2>
+              <button className="btn btn-ghost btn-sm" onClick={() => setErrorDetail(null)}>✕</button>
+            </div>
+            <p style={{ margin: '8px 0 4px', fontSize: 13 }}>
+              <strong>{errorDetail.imageName}</strong> — <code style={{ fontSize: 12 }}>{errorDetail.model}</code>
+            </p>
+            <pre className="raw-pre" style={{ marginTop: 8 }}>{errorDetail.error}</pre>
+          </div>
+        </div>
+      )}
+
+      {/* Per-reading comparison modal */}
+      {detailResult?.accuracy && (() => {
+        const acc = detailResult.accuracy!
+        return (
+          <div className="modal-backdrop" onClick={e => { if (e.target === e.currentTarget) setDetailResult(null) }}>
+            <div className="benchmark-detail-modal">
+              <div className="modal-editor-header">
+                <h2>{detailResult.imageName} — {detailResult.model.split('/').pop()}
+                  {detailResult.runIndex != null && <span className="text-muted"> (run {detailResult.runIndex + 1})</span>}
+                </h2>
+                <button className="btn btn-ghost btn-sm" onClick={() => setDetailResult(null)}>✕</button>
+              </div>
+
+              <div className="accuracy-summary-bar" style={{ marginBottom: 12 }}>
+                <div className="accuracy-pct-block">
+                  <span className="accuracy-pct" style={{ color: pctColor(acc.exactPct) }}>
+                    {acc.exactPct.toFixed(0)}%
+                  </span>
+                  <span className="accuracy-pct-label">values</span>
+                </div>
+                <div className="accuracy-pct-block">
+                  <span className="accuracy-pct" style={{ color: acc.dayCountMatch ? 'var(--success)' : 'var(--danger)' }}>
+                    {acc.dayCountMatch ? 'Yes' : 'No'}
+                  </span>
+                  <span className="accuracy-pct-label">days</span>
+                </div>
+                <div className="accuracy-summary-text">
+                  <strong>{acc.totalExactValues}/{acc.pairedValues} exact values</strong>
+                  <span className="text-muted">
+                    &ensp;({acc.exactMatches}/{acc.pairedCount} full readings)
+                  </span>
+                  {acc.avgSysError !== null && (
+                    <span className="text-muted">
+                      &ensp;·&ensp;sys ±{acc.avgSysError.toFixed(1)}&ensp;dia ±{acc.avgDiaError!.toFixed(1)} mmHg
+                    </span>
+                  )}
+                  <span className={acc.dayCountMatch ? 'text-muted' : 'accuracy-mismatch'}>
+                    &ensp;·&ensp;{acc.extDayCount}/{acc.gtDayCount} day{acc.gtDayCount !== 1 ? 's' : ''}
+                  </span>
+                </div>
+              </div>
+
+              <div style={{ overflowX: 'auto' }}>
+                <table className="accuracy-table">
+                  <thead>
+                    <tr>
+                      <th>Day</th><th>Time</th>
+                      <th>True sys</th><th>True dia</th>
+                      <th>Got sys</th><th>Got dia</th>
+                      <th>Δ sys</th><th>Δ dia</th>
+                      <th>Sys</th><th>Dia</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {acc.perReading.map((r, i) => (
+                      <tr key={i} className={
+                        r.extSys === null ? 'acc-row-missing'
+                        : r.exact          ? 'acc-row-exact'
+                        : (Math.abs(r.deltaSys ?? 0) > 5 || Math.abs(r.deltaDia ?? 0) > 5)
+                                           ? 'acc-row-error' : ''
+                      }>
+                        <td>{r.gtDay}</td>
+                        <td>{r.gtTime}</td>
+                        <td className="bp-sys">{r.gtSys}</td>
+                        <td className="bp-dia">{r.gtDia}</td>
+                        <td className={r.extSys !== null ? 'bp-sys' : 'text-muted'}>{r.extSys ?? '—'}</td>
+                        <td className={r.extDia !== null ? 'bp-dia' : 'text-muted'}>{r.extDia ?? '—'}</td>
+                        <td className={!r.deltaSys ? '' : Math.abs(r.deltaSys) > 5 ? 'acc-err' : 'acc-warn'}>
+                          {r.deltaSys === null ? '—' : r.deltaSys === 0 ? '0' : (r.deltaSys > 0 ? '+' : '') + r.deltaSys}
+                        </td>
+                        <td className={!r.deltaDia ? '' : Math.abs(r.deltaDia) > 5 ? 'acc-err' : 'acc-warn'}>
+                          {r.deltaDia === null ? '—' : r.deltaDia === 0 ? '0' : (r.deltaDia > 0 ? '+' : '') + r.deltaDia}
+                        </td>
+                        <td className={r.extSys === null ? 'text-muted' : r.sysExact ? 'acc-ok' : 'acc-err'}>
+                          {r.extSys === null ? '—' : r.sysExact ? '✓' : '✗'}
+                        </td>
+                        <td className={r.extDia === null ? 'text-muted' : r.diaExact ? 'acc-ok' : 'acc-err'}>
+                          {r.extDia === null ? '—' : r.diaExact ? '✓' : '✗'}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          </div>
+        )
+      })()}
     </div>
   )
 }
@@ -917,18 +1104,22 @@ export function BenchmarkTab({ library, apiKey, prompt, savedPrompts }: Benchmar
         const accuracy = (r.data && image.groundTruth && image.groundTruth.length > 0)
           ? compareReadings(r.data, image.groundTruth)
           : null
+        const gtReadings = image.groundTruth?.reduce((s, d) => s + d.measurements.length, 0) ?? 0
         result = {
           imageId: image.id, imageName: image.name,
           difficulty: image.difficulty ?? null, model,
           hasGroundTruth: !!(image.groundTruth && image.groundTruth.length > 0),
+          gtPairedValues: gtReadings * 2,
           accuracy, usage: r.usage, error: r.error,
           duration_ms: Date.now() - start, runIndex: runIdx,
         }
       } catch (err) {
+        const gtReadings = image.groundTruth?.reduce((s, d) => s + d.measurements.length, 0) ?? 0
         result = {
           imageId: image.id, imageName: image.name,
           difficulty: image.difficulty ?? null, model,
           hasGroundTruth: !!(image.groundTruth && image.groundTruth.length > 0),
+          gtPairedValues: gtReadings * 2,
           accuracy: null, error: (err as Error).message,
           duration_ms: Date.now() - start, runIndex: runIdx,
         }
@@ -1045,6 +1236,25 @@ export function BenchmarkTab({ library, apiKey, prompt, savedPrompts }: Benchmar
           {/* Model selector */}
           <div className="card benchmark-setup-card">
             <div className="section-title">Models to test</div>
+            <div className="model-add-row" style={{ marginBottom: 8 }}>
+              <select className="select select-sm" style={{ flex: 1 }}
+                value=""
+                onChange={(e: ChangeEvent<HTMLSelectElement>) => {
+                  const preset = MODEL_PRESETS.find(p => p.name === e.target.value)
+                  if (preset) setSelectedModels(preset.models)
+                  e.target.value = ''
+                }}
+                disabled={isRunning}>
+                <option value="">Load preset…</option>
+                {MODEL_PRESETS.map(p => (
+                  <option key={p.name} value={p.name}>{p.name} ({p.models.length})</option>
+                ))}
+              </select>
+              {selectedModels.length > 0 && (
+                <button className="btn btn-sm btn-ghost" disabled={isRunning}
+                  onClick={() => setSelectedModels([])}>Clear all</button>
+              )}
+            </div>
             <div className="model-list">
               {selectedModels.map(m => (
                 <div key={m} className="model-list-row">
@@ -1173,6 +1383,36 @@ export function BenchmarkTab({ library, apiKey, prompt, savedPrompts }: Benchmar
                 disabled={isRunning}
                 onChange={(e: ChangeEvent<HTMLInputElement>) => setRunName(e.target.value)} />
             </div>
+
+            {/* Cost estimate */}
+            {selectedModels.length > 0 && selectedWithGT.length > 0 && (() => {
+              const EST_INPUT_TOKENS = 5000
+              const EST_OUTPUT_TOKENS = 500
+              const totalRequests = selectedWithGT.length * selectedModels.length * runsPerCombination
+              let totalEstCost = 0
+              let modelsWithPricing = 0
+              for (const m of selectedModels) {
+                const p = PRICING_MAP[m]
+                if (p && p.input !== null) {
+                  modelsWithPricing++
+                  totalEstCost += selectedWithGT.length * runsPerCombination * (
+                    (EST_INPUT_TOKENS / 1_000_000) * p.input +
+                    (EST_OUTPUT_TOKENS / 1_000_000) * (p.output ?? 0)
+                  )
+                }
+              }
+              return (
+                <div style={{ marginTop: 10, fontSize: 12, color: 'var(--text-muted)', lineHeight: 1.6 }}>
+                  <strong>{totalRequests}</strong> API calls
+                  ({selectedWithGT.length} image{selectedWithGT.length !== 1 ? 's' : ''} × {selectedModels.length} model{selectedModels.length !== 1 ? 's' : ''}{runsPerCombination > 1 ? ` × ${runsPerCombination} runs` : ''})
+                  {modelsWithPricing > 0 && (
+                    <> · est. <strong style={{ color: 'var(--text)' }}>{fmtCost(totalEstCost)}</strong>
+                    {modelsWithPricing < selectedModels.length && <> ({modelsWithPricing}/{selectedModels.length} models with known pricing)</>}
+                    </>
+                  )}
+                </div>
+              )
+            })()}
 
             {runError && (
               <div className="error-box" style={{ marginTop: 10, fontSize: 13 }}>{runError}</div>
