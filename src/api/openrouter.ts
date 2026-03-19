@@ -75,6 +75,9 @@ export async function callOpenRouter(params: ApiCallParams): Promise<ApiCallResu
     cleaned = fenceMatch[1].trim()
   }
 
+  // Fix leading zeros on numbers (e.g. 09 → 9) — invalid JSON but common model mistake
+  cleaned = cleaned.replace(/:\s*0+(\d+)\s*([,\}\]])/g, ': $1$2')
+
   try {
     const parsed = JSON.parse(cleaned)
     if (!isValidResponse(parsed)) {

@@ -56,7 +56,8 @@ export interface BenchmarkImageResult {
   difficulty: 1 | 2 | null
   model: string
   hasGroundTruth: boolean
-  accuracy: AccuracyResult | null   // null if no ground truth
+  gtPairedValues: number            // ground truth reading count * 2; 0 if no GT
+  accuracy: AccuracyResult | null   // null if no ground truth or on error
   usage?: UsageInfo
   error: string | null
   duration_ms: number

@@ -55,15 +55,20 @@ export function base64ToObjectUrl(base64: string, mimeType: string): string {
 }
 
 export function compareReadings(extracted: DayReading[], groundTruth: DayReading[]): AccuracyResult {
+  // Try label-based matching first; fall back to positional if no labels match
   const extByLabel = new Map<string, Measurement[]>()
   for (const d of extracted) extByLabel.set(d.day_label.trim().toLowerCase(), d.measurements)
+  const useLabels = groundTruth.some(d => extByLabel.has(d.day_label.trim().toLowerCase()))
 
   let exactPairs = 0, sysExactTotal = 0, diaExactTotal = 0
   let totalSysErr = 0, totalDiaErr = 0, pairedCount = 0
   const perReading: PerReadingComparison[] = []
 
-  for (const gtDay of groundTruth) {
-    const extMeasurements = extByLabel.get(gtDay.day_label.trim().toLowerCase()) ?? []
+  for (let di = 0; di < groundTruth.length; di++) {
+    const gtDay = groundTruth[di]
+    const extMeasurements = useLabels
+      ? extByLabel.get(gtDay.day_label.trim().toLowerCase()) ?? []
+      : di < extracted.length ? extracted[di].measurements : []
     for (let i = 0; i < gtDay.measurements.length; i++) {
       const g = gtDay.measurements[i]
       const e = i < extMeasurements.length ? extMeasurements[i] : null
