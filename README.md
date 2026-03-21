@@ -23,6 +23,10 @@ BP Extractor is a personal-use web app for digitising handwritten blood pressure
 - Shows token usage when returned by the API
 - Raw model response always available for debugging
 - **Benchmark mode**: run multiple models across an image library with ground-truth scoring — value accuracy, mean absolute error, day-structure accuracy
+- **Benchmark presets**: one-click model selections (Recommended, Frontier, Budget, per-provider)
+- **Cost estimates**: per-model and total cost projections before running a benchmark
+- **Run management**: rename, delete, and compare benchmark runs
+- **Scatter plots**: visualise accuracy vs cost across models
 
 ## Quick Start
 
@@ -74,9 +78,12 @@ bp-extractor/
     ├── App.css              # app styles
     ├── BenchmarkTab.tsx     # multi-model benchmark UI
     ├── db.ts                # IndexedDB persistence (images, prompts, runs)
+    ├── models.ts            # model catalogue, presets, and pricing
     ├── types.ts             # shared TypeScript interfaces
+    ├── utils.ts             # accuracy scoring and helper functions
+    ├── vite-env.d.ts        # Vite type declarations
     └── api/
-        └── openrouter.ts   # OpenRouter API client
+        └── openrouter.ts    # OpenRouter API client
 ```
 
 ## Usage
@@ -111,13 +118,32 @@ If the model wraps the JSON in markdown code fences, they are stripped automatic
 | Provider | Model | OpenRouter ID |
 |---|---|---|
 | Anthropic | Claude Sonnet 4.6 | `anthropic/claude-sonnet-4.6` |
-| OpenAI | GPT-4o | `openai/gpt-4o` |
-| Google | Gemini 2.5 Flash | `google/gemini-2.5-flash` |
+| OpenAI | GPT-5.4 | `openai/gpt-5.4` |
+| Google | Gemini 2.5 Pro | `google/gemini-2.5-pro` |
 | xAI | Grok 4 | `x-ai/grok-4` |
 | Meta | Llama 4 Maverick | `meta-llama/llama-4-maverick` |
-| Mistral | Mistral Medium 3.1 | `mistralai/mistral-medium-3.1` |
+| Mistral | Mistral Large 2512 | `mistralai/mistral-large-2512` |
+| Qwen | Qwen3 VL 235B | `qwen/qwen3-vl-235b-a22b-instruct` |
+| Amazon | Nova Premier | `amazon/nova-premier-v1` |
+| ByteDance | Seed 1.6 Flash | `bytedance-seed/seed-1.6-flash` |
+| NVIDIA | Nemotron Nano 12B VL | `nvidia/nemotron-nano-12b-v2-vl` |
+| AllenAI | Molmo 7B-D | `allenai/molmo-7b-d` |
+| MoonshotAI | Kimi VL A3B | `moonshotai/kimi-vl-a3b-thinking` |
+| StepFun | Step3 | `stepfun-ai/step3` |
+| Microsoft | Phi 4 Multimodal | `microsoft/phi-4-multimodal-instruct` |
 
-The in-app dropdown includes 30+ models across all providers. Check [openrouter.ai/models](https://openrouter.ai/models) (filter by *Multimodal*) for the full list.
+The in-app dropdown includes 60+ models across 14 providers. Check [openrouter.ai/models](https://openrouter.ai/models) (filter by *Multimodal*) for the full list.
+
+## Benchmark Mode
+
+The **Benchmark** tab lets you evaluate model accuracy at scale:
+
+1. **Image library** — import images with ground-truth BP readings into the built-in library.
+2. **Model selection** — pick individual models or use a preset (Recommended, Frontier, Budget, or per-provider).
+3. **Cost estimate** — review projected costs before running.
+4. **Run** — all selected models process every image; results are scored automatically.
+5. **Results** — view per-model accuracy, mean absolute error, and day-structure accuracy. Use scatter plots to compare accuracy vs cost.
+6. **History** — saved runs can be renamed, compared, or deleted.
 
 ## Build for local use (optional)
 
