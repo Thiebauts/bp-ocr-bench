@@ -167,11 +167,12 @@ export interface ModelPreset {
 
 export const MODEL_PRESETS: ModelPreset[] = [
   {
-    name: 'Recommended (17 models)',
+    name: 'Recommended (18 models)',
     models: [
       'anthropic/claude-sonnet-4.6',
       'openai/gpt-5.4',
       'openai/gpt-4.1',
+      'google/gemini-3.1-pro-preview',
       'google/gemini-2.5-pro',
       'google/gemini-2.5-flash',
       'google/gemini-3-flash-preview',
