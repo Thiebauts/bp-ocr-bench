@@ -66,7 +66,21 @@ export async function callOpenRouter(params: ApiCallParams): Promise<ApiCallResu
 
   const json = await response.json()
   const rawContent: string = json.choices?.[0]?.message?.content ?? ''
+  const finishReason: string | undefined = json.choices?.[0]?.finish_reason
   const usage: UsageInfo | undefined = json.usage
+
+  // Detect truncated output
+  const wasTruncated = finishReason === 'length' ||
+    (usage?.completion_tokens != null && usage.completion_tokens >= maxTokens)
+
+  if (wasTruncated) {
+    return {
+      data: null,
+      raw: rawContent,
+      error: `Output truncated — completion used ${usage?.completion_tokens ?? '?'} tokens (max_tokens = ${maxTokens}). Increase max tokens and retry.`,
+      usage,
+    }
+  }
 
   // Strip markdown code fences (```json ... ``` or ``` ... ```)
   let cleaned = rawContent.trim()
