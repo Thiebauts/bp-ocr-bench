@@ -124,6 +124,24 @@ function computeModelStats(results: BenchmarkImageResult[], model: string): Mode
 
 // ── Export ─────────────────────────────────────────────────────────
 
+function exportRunMeta(run: BenchmarkRun) {
+  const imageNames = [...new Set(run.results.map(r => r.imageName))]
+  const meta = {
+    run_name: run.name,
+    run_date: new Date(run.timestamp).toISOString(),
+    models: run.models,
+    images: imageNames,
+    max_tokens: run.maxTokens,
+    temperature: run.temperature,
+    repetitions: run.runsPerCombination ?? 1,
+    prompt: run.prompt ?? '',
+  }
+  downloadBlob(
+    new Blob([JSON.stringify(meta, null, 2)], { type: 'application/json' }),
+    `benchmark-${run.id}-meta.json`,
+  )
+}
+
 function exportRunJSON(run: BenchmarkRun) {
   downloadBlob(
     new Blob([JSON.stringify(run, null, 2)], { type: 'application/json' }),
@@ -466,8 +484,9 @@ function BenchmarkReport({ run }: { run: BenchmarkRun }) {
         </span>
         <div style={{ marginLeft: 'auto', display: 'flex', gap: 8 }}>
           <button className="btn btn-sm" onClick={() => exportSummaryCSV(run, modelStats)}>Summary CSV</button>
-          <button className="btn btn-sm" onClick={() => exportRunJSON(run)}>Export JSON</button>
-          <button className="btn btn-sm" onClick={() => exportRunCSV(run)}>Export CSV</button>
+          <button className="btn btn-sm" onClick={() => exportRunCSV(run)}>Full CSV</button>
+          <button className="btn btn-sm" onClick={() => exportRunMeta(run)}>Metadata</button>
+          <button className="btn btn-sm" onClick={() => exportRunJSON(run)}>Raw JSON</button>
         </div>
       </div>
 
@@ -1150,6 +1169,7 @@ export function BenchmarkTab({ library, apiKey, prompt, savedPrompts }: Benchmar
       models: selectedModels,
       selectedImageIds: imagesToTest.map(e => e.id),
       results,
+      prompt: activePrompt,
       maxTokens,
       temperature,
       runsPerCombination,

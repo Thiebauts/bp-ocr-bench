@@ -71,6 +71,7 @@ export interface BenchmarkRun {
   models: string[]
   selectedImageIds: string[]
   results: BenchmarkImageResult[]
+  prompt: string
   maxTokens: number
   temperature: number
   runsPerCombination?: number   // default 1
