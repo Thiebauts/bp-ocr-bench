@@ -1,6 +1,12 @@
 {
   "name": "bp-extractor",
   "version": "1.0.0",
+  "description": "Extract structured blood pressure data from handwritten log photos using vision LLMs via OpenRouter",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/Thiebauts/bp-ocr-bench.git"
+  },
   "private": true,
   "type": "module",
   "scripts": {
