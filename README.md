@@ -9,7 +9,9 @@
 
 ## Overview
 
-BP Extractor is a personal-use web app for digitising handwritten blood pressure logs. Upload a photo of your log, select any vision-capable model available on OpenRouter, and receive structured JSON output grouped by day and measurement time. A built-in benchmark mode lets you compare model accuracy against ground-truth readings across an image library — useful for picking the best model for your handwriting style.
+BP Extractor is a local benchmarking tool for evaluating how well vision LLMs extract blood pressure readings from handwritten log photos. It was built to find the best model for [MeanBloodPressure](https://github.com/Thiebauts/MeanBloodPressure), a Next.js app that turns BP log photos into editable readings, statistics, and PDF reports.
+
+Because model accuracy varies significantly with handwriting style and log format, this tool runs multiple models against the same image library with ground-truth scoring — so you can pick the best model before using it in production. It runs locally and is intentionally not deployed (no server, no stored data, no API key leaves your browser).
 
 ## Features
 
